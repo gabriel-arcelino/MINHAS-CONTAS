@@ -51,6 +51,38 @@ npm run dev
 npm run build
 ```
 
+## 🔐 Publicação do login Google
+
+O login da planilha usa o provedor Google do projeto Firebase configurado em
+`firebase-applet-config.json` e solicita acesso às APIs Google Sheets e Drive.
+Se o Google exibir “a app não concluiu o processo de validação” ou `Erro 403:
+access_denied`, o OAuth ainda não foi publicado/verificado para uso público.
+Esse bloqueio é aplicado pelo Google antes de a aplicação receber
+qualquer resposta e não pode ser corrigido apenas no código.
+
+### Checklist obrigatório para produção
+
+1. Publique esta aplicação em um domínio HTTPS estável.
+2. Abra **Google Cloud Console > APIs e serviços > Tela de consentimento OAuth**.
+3. Configure a marca, o domínio autorizado, a página inicial e os links públicos:
+   `/privacy.html` e `/terms.html`.
+4. Confirme que **Google Sheets API** e **Google Drive API** estão habilitadas.
+5. Declare os escopos usados pela aplicação:
+   `https://www.googleapis.com/auth/spreadsheets` e
+   `https://www.googleapis.com/auth/drive.file`.
+6. Clique em **Publish app / Em produção** e envie a solicitação de verificação.
+7. Em **Firebase Console > Authentication > Configurações > Domínios autorizados**,
+   adicione o domínio HTTPS de produção.
+
+Os escopos de Sheets/Drive são sensíveis e podem exigir análise do Google,
+incluindo justificativa de uso e demonstração do fluxo OAuth. A publicação
+precisa ser feita pelo proprietário/autorizado do projeto `gen-lang-client-0505736443`;
+não existe configuração no código que possa remover essa exigência.
+
+As páginas públicas exigidas pelo consentimento estão em `public/privacy.html`
+e `public/terms.html`. Atualize nelas o nome legal e o contato do responsável
+antes de enviar a verificação.
+
 ---
 
 ## 📁 Estrutura de Arquivos para o GitHub Pages

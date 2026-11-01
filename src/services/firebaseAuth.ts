@@ -31,6 +31,50 @@ let isSigningIn = false;
 // In-memory access token cache (NEVER persisted to localStorage/sessionStorage)
 let cachedAccessToken: string | null = null;
 
+const getErrorText = (error: unknown): string => {
+  if (!error || typeof error !== 'object') return '';
+  const authError = error as {
+    code?: unknown;
+    message?: unknown;
+    customData?: { cause?: { message?: unknown } };
+  };
+  return [
+    authError.code,
+    authError.message,
+    authError.customData?.cause?.message,
+  ]
+    .filter((value): value is string => typeof value === 'string')
+    .join(' ')
+    .toLowerCase();
+};
+
+export const getGoogleAuthErrorMessage = (error: unknown): string => {
+  const errorText = getErrorText(error);
+
+  if (errorText.includes('access_denied')) {
+    return 'O acesso público ainda não está liberado pelo Google. O proprietário precisa publicar a tela de consentimento OAuth como “Em produção” e concluir a verificação dos escopos Google Sheets/Drive. Enquanto isso, seus dados locais continuam disponíveis.';
+  }
+
+  if (errorText.includes('unauthorized-domain')) {
+    const hostname = typeof window !== 'undefined' ? window.location.hostname : 'este domínio';
+    return `Domínio não autorizado (${hostname}). Adicione este domínio em Firebase Console > Authentication > Configurações > Domínios autorizados.`;
+  }
+
+  if (errorText.includes('popup-blocked')) {
+    return 'O navegador bloqueou a janela de login. Permita pop-ups para este site e tente novamente.';
+  }
+
+  if (errorText.includes('popup-closed-by-user') || errorText.includes('cancelled-popup-request')) {
+    return '';
+  }
+
+  if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
+    return error.message;
+  }
+
+  return 'Falha na autenticação Google. Tente novamente.';
+};
+
 export const initAuth = (
   onAuthSuccess?: (user: User, token: string) => void,
   onAuthFailure?: () => void

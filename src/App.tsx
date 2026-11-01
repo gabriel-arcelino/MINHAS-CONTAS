@@ -37,7 +37,12 @@ import {
   Coins,
 } from 'lucide-react';
 import type { User } from 'firebase/auth';
-import { initAuth, googleSignIn, logout as googleLogout } from './services/firebaseAuth.ts';
+import {
+  initAuth,
+  googleSignIn,
+  getGoogleAuthErrorMessage,
+  logout as googleLogout,
+} from './services/firebaseAuth.ts';
 import {
   findOrCreateAppSpreadsheet,
   loadAllDataFromSheets,
@@ -360,22 +365,7 @@ export default function App() {
       ) {
         console.error('Falha no login Google:', err);
       }
-      let errorMsg = err?.message || 'Falha na autenticação Google.';
-      if (
-        err?.code === 'auth/unauthorized-domain' ||
-        errorMsg.includes('auth/unauthorized-domain') ||
-        errorMsg.includes('unauthorized-domain')
-      ) {
-        errorMsg =
-          'Domínio não autorizado (auth/unauthorized-domain). Adicione "gabriel-arcelino.github.io" à lista de Domínios Autorizados no Firebase Console (Authentication > Configurações > Domínios autorizados).';
-      } else if (
-        err?.code === 'auth/popup-closed-by-user' ||
-        err?.code === 'auth/cancelled-popup-request'
-      ) {
-        errorMsg = '';
-      } else if (err?.code === 'auth/popup-blocked') {
-        errorMsg = 'O navegador bloqueou a abertura da janela de login. Por favor, permita pop-ups para este site.';
-      }
+      const errorMsg = getGoogleAuthErrorMessage(err);
       if (errorMsg) {
         setSyncError(errorMsg);
       }
