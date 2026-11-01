@@ -1,0 +1,6 @@
+{
+  "name": "Meu Financeiro - Planejamento Pessoal",
+  "description": "Sistema de controle e planejamento financeiro pessoal com gestão de receitas, despesas, orçamentos, reserva de emergência e investimentos.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
