@@ -63,6 +63,14 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
     cachedAccessToken = credential.accessToken;
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (error: any) {
+    // When the user dismisses the popup window or previous request was cancelled, handle gracefully
+    if (
+      error?.code === 'auth/popup-closed-by-user' ||
+      error?.code === 'auth/cancelled-popup-request'
+    ) {
+      console.info('Autenticação com Google finalizada sem conclusão pelo usuário.');
+      return null;
+    }
     console.error('Erro ao autenticar com Google:', error);
     throw error;
   } finally {

@@ -63,6 +63,8 @@ import {
   initialEmergencyFund,
   initialAssets,
   initialDistribution,
+  getDemoFinancialData,
+  getEmptyFinancialData,
 } from './initialData';
 
 const formatCurrency = (val: number) =>
@@ -73,22 +75,16 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'movimentacoes' | 'orcamento' | 'reserva' | 'investimentos' | 'relatorios' | 'configuracoes'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  // Storage key versioned to force clean state as requested
-  const STORAGE_KEY = 'mf_user_clean_v1';
-
-  // Global Financial Data with localStorage (initially zeroed out)
+  // Global Financial Data with localStorage (defaults to realistic balanced demo dataset for testing)
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
-    const isCleaned = localStorage.getItem(STORAGE_KEY);
-    if (!isCleaned) {
-      localStorage.setItem(STORAGE_KEY, 'true');
-      localStorage.removeItem('mf_transactions');
-      localStorage.removeItem('mf_budgets');
-      localStorage.removeItem('mf_emergency');
-      localStorage.removeItem('mf_assets');
-      return [];
-    }
     const saved = localStorage.getItem('mf_transactions');
-    return saved ? JSON.parse(saved) : [];
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (e) {}
+    }
+    return getDemoFinancialData().transactions;
   });
 
   const [categories, setCategories] = useState<Category[]>(() => {
@@ -97,29 +93,41 @@ export default function App() {
   });
 
   const [budgets, setBudgets] = useState<CategoryBudget[]>(() => {
-    const isCleaned = localStorage.getItem(STORAGE_KEY);
-    if (!isCleaned) return initialBudgets;
     const saved = localStorage.getItem('mf_budgets');
-    return saved ? JSON.parse(saved) : initialBudgets;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (e) {}
+    }
+    return getDemoFinancialData().budgets;
   });
 
   const [emergencyFund, setEmergencyFund] = useState<EmergencyFund>(() => {
-    const isCleaned = localStorage.getItem(STORAGE_KEY);
-    if (!isCleaned) return initialEmergencyFund;
     const saved = localStorage.getItem('mf_emergency');
-    return saved ? JSON.parse(saved) : initialEmergencyFund;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed && (parsed.targetAmount > 0 || parsed.currentBalance > 0)) return parsed;
+      } catch (e) {}
+    }
+    return getDemoFinancialData().emergencyFund;
   });
 
   const [assets, setAssets] = useState<InvestmentAsset[]>(() => {
-    const isCleaned = localStorage.getItem(STORAGE_KEY);
-    if (!isCleaned) return [];
     const saved = localStorage.getItem('mf_assets');
-    return saved ? JSON.parse(saved) : [];
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (e) {}
+    }
+    return getDemoFinancialData().assets;
   });
 
   const [distribution, setDistribution] = useState<DistributionSettings>(() => {
     const saved = localStorage.getItem('mf_dist');
-    return saved ? JSON.parse(saved) : initialDistribution;
+    return saved ? JSON.parse(saved) : getDemoFinancialData().distribution;
   });
 
   // Sync to localStorage
@@ -149,7 +157,13 @@ export default function App() {
 
   const [incomeSources, setIncomeSources] = useState<IncomeSource[]>(() => {
     const saved = localStorage.getItem('mf_income_sources');
-    return saved ? JSON.parse(saved) : [];
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (e) {}
+    }
+    return getDemoFinancialData().incomeSources;
   });
 
   useEffect(() => {
@@ -196,6 +210,79 @@ export default function App() {
       console.error('Falha ao salvar no Google Sheets:', err);
       setSyncStatus('error');
       setSyncError(err.message || 'Falha ao sincronizar com Google Sheets');
+    }
+  };
+
+  // Notification for demo scenario actions
+  const [demoNotice, setDemoNotice] = useState<string | null>(null);
+
+  const showDemoNotice = (msg: string) => {
+    setDemoNotice(msg);
+    setTimeout(() => setDemoNotice(null), 5000);
+  };
+
+  // Load realistic balanced mock data for testing all app functionalities
+  const handleLoadDemoData = () => {
+    const demo = getDemoFinancialData();
+    setIncomeSources(demo.incomeSources);
+    setBudgets(demo.budgets);
+    setEmergencyFund(demo.emergencyFund);
+    setAssets(demo.assets);
+    setDistribution(demo.distribution);
+    setTransactions(demo.transactions);
+
+    // Save directly to localStorage for instant local persistence
+    localStorage.setItem('mf_income_sources', JSON.stringify(demo.incomeSources));
+    localStorage.setItem('mf_budgets', JSON.stringify(demo.budgets));
+    localStorage.setItem('mf_emergency', JSON.stringify(demo.emergencyFund));
+    localStorage.setItem('mf_assets', JSON.stringify(demo.assets));
+    localStorage.setItem('mf_dist', JSON.stringify(demo.distribution));
+    localStorage.setItem('mf_transactions', JSON.stringify(demo.transactions));
+
+    if (accessToken && spreadsheetInfo) {
+      syncToSheets({
+        incomeSources: demo.incomeSources,
+        budgets: demo.budgets,
+        emergencyFund: demo.emergencyFund,
+        assets: demo.assets,
+        distributionSettings: demo.distribution,
+        transactions: demo.transactions,
+      });
+    }
+
+    showDemoNotice('Cenário de teste equilibrado carregado com sucesso! Todas as abas foram populadas com dados realistas.');
+  };
+
+  // Reset all data to empty state
+  const handleClearAllData = () => {
+    if (window.confirm('Tem certeza que deseja zerar todos os dados? Esta ação limpará lançamentos, orçamentos e carteira de ativos.')) {
+      const empty = getEmptyFinancialData();
+      setIncomeSources(empty.incomeSources);
+      setBudgets(empty.budgets);
+      setEmergencyFund(empty.emergencyFund);
+      setAssets(empty.assets);
+      setDistribution(empty.distribution);
+      setTransactions(empty.transactions);
+
+      localStorage.setItem('mf_income_sources', JSON.stringify(empty.incomeSources));
+      localStorage.setItem('mf_budgets', JSON.stringify(empty.budgets));
+      localStorage.setItem('mf_emergency', JSON.stringify(empty.emergencyFund));
+      localStorage.setItem('mf_assets', JSON.stringify(empty.assets));
+      localStorage.setItem('mf_dist', JSON.stringify(empty.distribution));
+      localStorage.setItem('mf_transactions', JSON.stringify(empty.transactions));
+
+      if (accessToken && spreadsheetInfo) {
+        syncToSheets({
+          incomeSources: empty.incomeSources,
+          budgets: empty.budgets,
+          emergencyFund: empty.emergencyFund,
+          assets: empty.assets,
+          distributionSettings: empty.distribution,
+          transactions: empty.transactions,
+        });
+      }
+
+      showDemoNotice('Todos os dados foram zerados com sucesso.');
     }
   };
 
@@ -262,10 +349,36 @@ export default function App() {
         setUser(res.user);
         setAccessToken(res.accessToken);
         await handleConnectSheets(res.accessToken);
+      } else {
+        // Pop-up was closed by user or cancelled cleanly
+        setSyncStatus('idle');
       }
     } catch (err: any) {
-      console.error('Falha no login Google:', err);
-      setSyncError(err.message || 'Falha na autenticação Google.');
+      if (
+        err?.code !== 'auth/popup-closed-by-user' &&
+        err?.code !== 'auth/cancelled-popup-request'
+      ) {
+        console.error('Falha no login Google:', err);
+      }
+      let errorMsg = err?.message || 'Falha na autenticação Google.';
+      if (
+        err?.code === 'auth/unauthorized-domain' ||
+        errorMsg.includes('auth/unauthorized-domain') ||
+        errorMsg.includes('unauthorized-domain')
+      ) {
+        errorMsg =
+          'Domínio não autorizado (auth/unauthorized-domain). Adicione "gabriel-arcelino.github.io" à lista de Domínios Autorizados no Firebase Console (Authentication > Configurações > Domínios autorizados).';
+      } else if (
+        err?.code === 'auth/popup-closed-by-user' ||
+        err?.code === 'auth/cancelled-popup-request'
+      ) {
+        errorMsg = '';
+      } else if (err?.code === 'auth/popup-blocked') {
+        errorMsg = 'O navegador bloqueou a abertura da janela de login. Por favor, permita pop-ups para este site.';
+      }
+      if (errorMsg) {
+        setSyncError(errorMsg);
+      }
     } finally {
       setIsLoggingIn(false);
     }
@@ -665,6 +778,16 @@ export default function App() {
             )}
 
             <button
+              onClick={handleLoadDemoData}
+              className="flex items-center gap-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 px-3 py-1.5 md:px-3.5 md:py-2 rounded-lg text-xs font-semibold transition-all active:scale-95 shrink-0"
+              title="Carregar cenário de dados fictícios para testar todas as telas e cálculos"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              <span className="hidden sm:inline">Carregar Dados de Teste</span>
+              <span className="sm:hidden">Testar</span>
+            </button>
+
+            <button
               onClick={() => setIsTxModalOpen(true)}
               className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-3.5 py-1.5 md:px-4 md:py-2 rounded-lg text-xs font-bold shadow-lg shadow-emerald-950/50 transition-all active:scale-95 shrink-0"
             >
@@ -677,6 +800,41 @@ export default function App() {
 
         {/* CONTENT PAGES */}
         <main className="flex-1 p-4 md:p-8 max-w-6xl w-full mx-auto">
+          {demoNotice && (
+            <div className="mb-6 p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 flex items-center justify-between gap-3 shadow-lg">
+              <div className="flex items-center gap-2.5">
+                <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+                <p className="text-xs sm:text-sm font-medium">{demoNotice}</p>
+              </div>
+              <button
+                onClick={() => setDemoNotice(null)}
+                className="text-amber-400 hover:text-white p-1 rounded-md transition-colors"
+                title="Fechar"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {syncError && (
+            <div className="mb-6 p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-200 flex items-start justify-between gap-3 shadow-lg">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+                <div className="text-xs sm:text-sm leading-relaxed space-y-1">
+                  <p className="font-semibold text-rose-300">Atenção na sincronização ou autenticação:</p>
+                  <p>{syncError}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSyncError(null)}
+                className="text-rose-400 hover:text-white p-1 rounded-md transition-colors"
+                title="Fechar"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
           {activeTab === 'dashboard' && (
             <DashboardView
               income={totalIncome}
@@ -688,6 +846,7 @@ export default function App() {
               safeToSpend={safeToSpend}
               onOpenIncomeModal={() => setIsIncomeModalOpen(true)}
               onNavigate={(tab) => setActiveTab(tab)}
+              onLoadDemoData={handleLoadDemoData}
             />
           )}
 
@@ -861,31 +1020,8 @@ export default function App() {
               }}
               onAddCategory={(cat) => setCategories((prev) => [...prev, cat])}
               onDeleteCategory={(id) => setCategories((prev) => prev.filter((c) => c.id !== id))}
-              onResetDemo={() => {
-                if (
-                  window.confirm(
-                    'Deseja realmente zerar todos os dados e começar do zero? Se estiver conectado ao Google Sheets, a planilha também será limpa.'
-                  )
-                ) {
-                  localStorage.clear();
-                  localStorage.setItem(STORAGE_KEY, 'true');
-                  setTransactions([]);
-                  setCategories(initialCategories);
-                  setBudgets(initialBudgets);
-                  setEmergencyFund(initialEmergencyFund);
-                  setAssets([]);
-                  setDistribution(initialDistribution);
-                  if (accessToken && spreadsheetInfo) {
-                    syncToSheets({
-                      transactions: [],
-                      budgets: initialBudgets,
-                      emergencyFund: initialEmergencyFund,
-                      assets: [],
-                      distributionSettings: initialDistribution,
-                    });
-                  }
-                }
-              }}
+              onResetDemo={handleClearAllData}
+              onLoadDemoData={handleLoadDemoData}
               transactions={transactions}
               user={user}
               spreadsheetInfo={spreadsheetInfo}
@@ -942,6 +1078,7 @@ interface DashboardProps {
   safeToSpend: SafeToSpendCalc;
   onOpenIncomeModal: () => void;
   onNavigate: (tab: any) => void;
+  onLoadDemoData?: () => void;
 }
 
 function DashboardView({
@@ -954,6 +1091,7 @@ function DashboardView({
   safeToSpend,
   onOpenIncomeModal,
   onNavigate,
+  onLoadDemoData,
 }: DashboardProps) {
   const expenseRatio = income > 0 ? (expense / income) * 100 : 0;
   const reservePct = emergency.targetAmount > 0
@@ -971,6 +1109,19 @@ function DashboardView({
             Painel financeiro do mês corrente com indicadores atualizados em tempo real.
           </p>
         </div>
+
+        {onLoadDemoData && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onLoadDemoData}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-500/10 text-amber-300 border border-amber-500/30 hover:bg-amber-500/20 transition-all active:scale-95"
+              title="Carrega o cenário fictício equilibrado para testar todas as funcionalidades do app"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              <span>Cenário de Teste</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* HERO BANNER: QUANTO POSSO GASTAR NO MÊS & META DIÁRIA */}
@@ -992,13 +1143,25 @@ function DashboardView({
                 Cadastre sua renda esperada para calcularmos automaticamente seu <strong className="text-emerald-400">teto de gastos livres no mês</strong> e sua <strong className="text-emerald-400">meta diária recomendada</strong>, protegendo suas contas fixas e aportes.
               </p>
             </div>
-            <button
-              onClick={onOpenIncomeModal}
-              className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-3 rounded-xl text-xs font-semibold shadow-lg shadow-emerald-950/40 transition-all active:scale-95 shrink-0"
-            >
-              <DollarSign className="w-4 h-4" />
-              <span>Cadastrar Salário / Renda</span>
-            </button>
+            <div className="flex flex-col sm:flex-row gap-2.5 shrink-0">
+              {onLoadDemoData && (
+                <button
+                  onClick={onLoadDemoData}
+                  className="flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-4 py-3 rounded-xl text-xs shadow-lg shadow-amber-950/40 transition-all active:scale-95"
+                  title="Popular com cenário financeiro equilibrado de teste"
+                >
+                  <Sparkles className="w-4 h-4 text-slate-950" />
+                  <span>Carregar Dados de Teste</span>
+                </button>
+              )}
+              <button
+                onClick={onOpenIncomeModal}
+                className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-3 rounded-xl text-xs font-semibold shadow-lg shadow-emerald-950/40 transition-all active:scale-95"
+              >
+                <DollarSign className="w-4 h-4" />
+                <span>Cadastrar Renda Manual</span>
+              </button>
+            </div>
           </div>
         </div>
       ) : (
@@ -2547,6 +2710,7 @@ interface SettingsViewProps {
   onAddCategory: (cat: Category) => void;
   onDeleteCategory: (id: string) => void;
   onResetDemo: () => void;
+  onLoadDemoData: () => void;
   transactions: Transaction[];
   user: User | null;
   spreadsheetInfo: SpreadsheetInfo | null;
@@ -2565,6 +2729,7 @@ function SettingsView({
   onAddCategory,
   onDeleteCategory,
   onResetDemo,
+  onLoadDemoData,
   transactions,
   user,
   spreadsheetInfo,
@@ -2884,14 +3049,14 @@ function SettingsView({
           </div>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col justify-between">
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col justify-between space-y-6">
           <div>
-            <h3 className="font-bold text-white text-xs mb-1">Backup & Segurança</h3>
-            <p className="text-[11px] text-slate-400 mb-6">
+            <h3 className="font-bold text-white text-xs mb-1">Backup & Exportação</h3>
+            <p className="text-[11px] text-slate-400 mb-4">
               Exporte seus dados locais para manter cópias de segurança em seu computador.
             </p>
 
-            <div className="space-y-3">
+            <div className="space-y-2.5">
               <button
                 onClick={exportJSON}
                 className="w-full flex items-center justify-center gap-2 p-2.5 bg-slate-950 hover:bg-slate-800 border border-slate-800 text-white rounded-lg text-xs font-semibold transition-all"
@@ -2905,17 +3070,38 @@ function SettingsView({
               >
                 <Download className="w-4 h-4 text-blue-400" /> Exportar Extrato (CSV)
               </button>
+            </div>
+          </div>
+
+          <div className="pt-4 border-t border-slate-800/80">
+            <div className="flex items-center gap-2 mb-1">
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              <h3 className="font-bold text-white text-xs">Ambiente de Testes & Simulação</h3>
+            </div>
+            <p className="text-[11px] text-slate-400 mb-3">
+              Carregue um cenário financeiro equilibrado e realista para validar cálculos, orçamentos e relatórios.
+            </p>
+
+            <div className="space-y-2">
+              <button
+                onClick={onLoadDemoData}
+                className="w-full flex items-center justify-center gap-2 p-2.5 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 rounded-lg text-xs font-semibold transition-all"
+                title="Carregar cenário equilibrado (CLT + freelance, contas fixas, lazer e carteira de ativos)"
+              >
+                <Sparkles className="w-4 h-4 text-amber-400" /> Carregar Cenário de Teste (Equilibrado)
+              </button>
 
               <button
                 onClick={onResetDemo}
-                className="w-full p-2.5 bg-rose-950/20 hover:bg-rose-950/40 border border-rose-500/20 text-rose-300 rounded-lg text-xs font-semibold transition-all text-center"
+                className="w-full flex items-center justify-center gap-2 p-2.5 bg-rose-950/20 hover:bg-rose-950/40 border border-rose-500/20 text-rose-300 rounded-lg text-xs font-semibold transition-all text-center"
+                title="Limpar todos os dados e começar do zero"
               >
-                Restaurar Dados de Exemplo
+                <Trash2 className="w-3.5 h-3.5 text-rose-400" /> Zerar Todos os Dados
               </button>
             </div>
           </div>
 
-          <div className="mt-6 p-3 bg-emerald-950/20 border border-emerald-500/20 rounded-lg text-[11px] text-emerald-300">
+          <div className="p-3 bg-emerald-950/20 border border-emerald-500/20 rounded-lg text-[11px] text-emerald-300">
             ✓ Sistema operando com persistência em armazenamento local.
           </div>
         </div>
