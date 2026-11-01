@@ -1,6 +1,6 @@
-# Integração com Google Sheets como Banco de Dados
+# Planejamento: Quanto Posso Gastar no Mês (Limite Seguro & Meta Diária)
 
-Este plano define a arquitetura e a experiência de integração do Google Sheets como banco de dados relacional e persistente para o sistema **Meu Financeiro**, permitindo que os dados sejam salvos diretamente na conta Google Drive do usuário e acessíveis em tempo real.
+Este plano detalha a criação do módulo de **Capacidade Mensal de Gastos ("Safe-to-Spend")**, permitindo ao usuário cadastrar seu salário e fontes de renda esperadas, deduzir automaticamente despesas fixas e aportes, e acompanhar exatamente quanto pode gastar no total do mês e por dia útil até o fechamento.
 
 ---
 
@@ -8,47 +8,53 @@ Este plano define a arquitetura e a experiência de integração do Google Sheet
 
 > [!IMPORTANT]
 > **Decisões confirmadas na etapa anterior:**
-> 1. **Criação Automática**: O aplicativo criará e configurará automaticamente uma planilha estruturada no Google Drive do usuário (`Meu Financeiro - Base de Dados`) com abas dedicadas para cada módulo (`Transacoes`, `Orcamentos`, `Reserva`, `Investimentos`, `Configuracoes`).
-> 2. **Sincronização Contínua**: O salvamento ocorrerá de forma reativa a cada movimentação, acompanhado de um indicador de sincronização e cache local para tolerância a falhas.
-> 3. **Escopos com Privilégio Mínimo**: Utilizaremos `https://www.googleapis.com/auth/spreadsheets` e `https://www.googleapis.com/auth/drive.file`, garantindo acesso estrito apenas aos arquivos criados ou manipulados pelo próprio aplicativo.
+> 1. **Cadastro de Renda**: O usuário definirá o salário base e outras fontes de renda (ex: freelance, bônus, pensão) através de um painel/modal dedicado na área orçamentária e no dashboard.
+> 2. **Metodologia de Cálculo**: O limite de gastos variáveis será calculado subtraindo da renda total os custos fixos essenciais e os aportes planejados (reserva + investimentos), gerando uma **meta diária segura** calculada pelos dias restantes do mês.
+> 3. **Persistência Google Sheets**: As fontes de renda configuradas serão salvas e sincronizadas automaticamente na aba `Configuracoes` da planilha do Google Drive.
 
 ---
 
 ### 1. Visão Geral & Conceito Central
 
-- **O que faz**: Transforma uma planilha do Google Sheets no backend em nuvem do sistema financeiro. O usuário faz login com sua conta Google, o sistema provisiona a planilha estruturada no seu Google Drive e gerencia leitura, escrita e atualização de dados automaticamente.
-- **Público-alvo**: Usuário pessoal que deseja manter a posse total de seus dados financeiros em formato de planilha transparente e auditável, sem precisar preencher fórmulas manualmente.
-- **Valor agregado**: Independência de servidores de terceiros, backup permanente e nativo no ecossistema Google, sincronização entre dispositivos e a possibilidade de visualizar ou exportar a planilha a qualquer momento.
+- **O que faz**: Responde de imediato à principal dúvida financeira cotidiana: *"Quanto ainda posso gastar este mês sem comprometer minhas contas fixas e metas de economia?"*.
+- **Público-alvo**: O usuário que deseja ter clareza do seu orçamento livre sem precisar fazer contas de cabeça no dia a dia.
+- **Valor agregado**: Transforma o orçamento passivo em um guia ativo de tomada de decisão diária com limite seguro por dia.
 
 ---
 
 ### 2. Experiência do Usuário & Design Visual
 
 - **Fluxo do Usuário**:
-  1. **Autenticação**: No topo da barra de navegação, o usuário visualiza o botão oficial estilizado *"Entrar com Google"*.
-  2. **Detecção e Provisionamento**: Ao autenticar, o sistema busca no Drive por uma planilha existente criada pelo app (`Meu Financeiro - Base de Dados`). Se não existir, cria a planilha com formatação de cabeçalhos coloridos e colunas pré-definidas.
-  3. **Carregamento Inicial**: As abas são lidas e hidratam o estado da aplicação. Caso a planilha esteja recém-criada ou vazia, o estado zerado é mantido e salvo.
-  4. **Movimentações & Operações**: Ao adicionar uma despesa, receita, alterar orçamento ou registrar aporte na reserva/investimentos, o sistema atualiza o estado local e envia um lote para a API do Google Sheets (`spreadsheets.values.batchUpdate` / `append`).
-  5. **Indicador de Status**: Um indicador no cabeçalho exibe o estado de conexão e sincronização (`Sincronizado`, `Salvando...`, `Erro ao sincronizar`), além do botão de atalho direto para *"Abrir no Google Sheets"*.
+  1. **Visualização Imediata (Dashboard & Orçamento)**:
+     - Card de destaque *"Capacidade de Gastos do Mês"* com:
+       - **Disponível para Gastos Livres**: Valor total que ainda pode ser gasto no mês.
+       - **Meta Diária Recomendada**: *"Você pode gastar até R$ X / dia (restam Y dias)"*.
+       - **Barra de Ritmo**: Mostra se o usuário está dentro do ritmo diário ou gastando mais rápido do que deveria.
+  2. **Cadastro e Gestão de Rendas**:
+     - Botão *"Configurar Fontes de Renda"* abre modal para gerenciar:
+       - Salário Principal Líquido.
+       - Fontes Secundárias (Freelance, Comissões, Aluguel, etc.).
+       - Renda Prevista Total consolidada.
+  3. **Composição Transparente**:
+     - Aba explicativa demonstrando a matemática do limite:
+       $$\text{Renda Prevista} - \text{Despesas Fixas Comprometidas} - \text{Aportes (Reserva + Investimentos)} = \text{Teto Livre do Mês}$$
 
-- **Identidade Visual & Tema**:
-  - **Paleta**: Preservação do tema profissional Dark Slate (`bg-slate-950`, `bg-slate-900`, `border-slate-800`) com acentos em Verde Esmeralda (`text-emerald-400`, `bg-emerald-500`) e Azul Google (`#4285F4`) no botão de login.
-  - **Tipografia**: `Plus Jakarta Sans` para display e interfaces; `JetBrains Mono` com números tabulares (`font-mono tabular-nums`) em tabelas e valores monetários.
-  - **Diálogos de Confirmação**: Para operações de exclusão ou limpeza de dados na planilha, modais explícitos com resumo do impacto e cancelamento seguro.
+- **Identidade Visual & Tipografia**:
+  - Padrão Dark Slate (`bg-slate-900`, `border-slate-800`), com destaque em Esmeralda/Ciano para valores seguros e Âmbar/Vermelho se o ritmo for ultrapassado.
+  - Tipografia numérica estritamente tabular (`font-mono tabular-nums`).
 
 ---
 
 ### 3. Decisões do Produto & Trade-Offs
 
-- **Decisão 1: Estruturação Multi-Abas no Google Sheets**
-  - *Abordagem*: Uma única planilha com 5 abas (`Transacoes`, `Orcamentos`, `Reserva`, `Investimentos`, `Configuracoes`).
-  - *Justificativa*: Mantém tudo centralizado em um único arquivo no Google Drive, facilitando a navegação do usuário caso queira inspecionar a planilha diretamente.
-- **Decisão 2: Cache Híbrido (Local + Nuvem)**
-  - *Abordagem*: O estado local (`localStorage`) funciona como camada de leitura imediata e offline buffer. Ao carregar a página com login ativo, a planilha atualiza os dados mais recentes.
-  - *Justificativa*: Evita latência de rede em operações comuns e bloqueios de interface enquanto a API do Google Sheets responde.
-- **Decisão 3: Escopos OAuth Estritos (`drive.file` + `spreadsheets`)**
-  - *Abordagem*: Não solicitar acesso a todos os arquivos do Google Drive (`drive` total), mas apenas a arquivos criados ou abertos pelo app (`drive.file`).
-  - *Justificativa*: Princípio de privilégio mínimo e máxima segurança para o usuário.
+- **Decisão 1: Deduzir Despesas Fixas e Aportes Primeiro ("Pague-se Primeiro")**
+  - *Abordagem*: O dinheiro da reserva e dos investimentos planejados já é protegido antes de calcular o que sobra para gastar.
+  - *Justificativa*: Estimula a saúde financeira real e evita que a pessoa gaste o que deveria poupar.
+- **Decisão 2: Ritmo Diário Baseado no Calendário Real**
+  - *Abordagem*: O sistema calcula os dias restantes do mês corrente (ex: se hoje é dia 15 em um mês de 30 dias, divide por 15).
+  - *Justificativa*: Fornece uma régua de bolso prática para o dia a dia.
+- **Decisão 3: Integração Direta com Google Sheets**
+  - *Abordagem*: As fontes de renda são armazenadas na planilha para não se perderem ao trocar de dispositivo ou limpar o navegador.
 
 ---
 
@@ -56,35 +62,41 @@ Este plano define a arquitetura e a experiência de integração do Google Sheet
 
 ```
 ┌────────────────────────────────────────────────────────┐
-│                   Meu Financeiro UI                    │
-│  (Dashboard, Movimentações, Orçamento, Reserva, etc.)  │
+│             Painel de Renda & Capacidade               │
+│  (Salário + Fontes Extras)                             │
 └───────────────────────────┬────────────────────────────┘
                             │
-               React State & Custom Hooks
+                            ▼
+┌────────────────────────────────────────────────────────┐
+│               Motor de Cálculo Safe-to-Spend           │
+│  • Renda Prevista Total                                │
+│  • (-) Custos Fixos (Aluguel, Contas, Assinaturas)    │
+│  • (-) Aporte Planejado Reserva (60%) & Inv (30%)      │
+│  • (-) Despesas Variáveis já Realizadas                │
+│  ───────────────────────────────────────────────────   │
+│  = Saldo Livre Restante / Dias Restantes = Meta/Dia    │
+└───────────────────────────┬────────────────────────────┘
                             │
-            ┌───────────────┴───────────────┐
-            ▼                               ▼
-┌───────────────────────┐       ┌───────────────────────┐
-│     Local Storage     │       │    Sheets Sync Svc    │
-│    (Offline Cache)    │       │  (Token & Batch API)  │
-└───────────────────────┘       └───────────┬───────────┘
-                                            │
-                                            ▼
-                                ┌───────────────────────┐
-                                │   Google Sheets API   │
-                                │   (Planilha no Drive) │
-                                └───────────────────────┘
+                            ▼
+┌────────────────────────────────────────────────────────┐
+│     Dashboard Widget & Sincronização Google Sheets     │
+└────────────────────────────────────────────────────────┘
 ```
 
-#### Estrutura das Abas da Planilha:
-1. **Transacoes**: `ID | Data | Descrição | Categoria | Tipo | Valor | Pago | Recorrente`
-2. **Orcamentos**: `Categoria | Valor Planejado | Alerta`
-3. **Reserva**: `Saldo Atual | Meta | Aporte Mensal Médio | Meses Alvo`
-4. **Investimentos**: `ID | Instituição | Tipo | Descrição | Valor Aplicado | Data | Rentabilidade`
-5. **Configuracoes**: `Percentual Reserva | Percentual Investimentos | Percentual Dinheiro Livre`
+#### Modelo de Dados:
+```typescript
+export interface IncomeSource {
+  id: string;
+  name: string; // Ex: "Salário Principal", "Freelance"
+  amount: number;
+  frequency: 'monthly' | 'occasional';
+}
+```
 
 #### Plano de Execução:
-1. **Configuração OAuth via Ferramenta**: Iniciar a solicitação de escopos OAuth (`set_up_oauth`) com confirmação do usuário.
-2. **Serviço Google Sheets (`src/services/googleSheets.ts`)**: Utilitários para autenticação Google Auth, criação de planilha, leitura e escrita de intervalos (`spreadsheets.values`).
-3. **Integração no App**: Conectar o fluxo de autenticação ao cabeçalho, injetar o mecanismo de sincronização reativa e sincronizar com o estado React existente.
-4. **Validação**: Compilação TypeScript e teste completo de criação e escrita.
+1. **Tipos e Estado (`src/types.ts` & `src/App.tsx`)**: Adicionar o modelo `IncomeSource[]` ao estado global com persistência local e Google Sheets.
+2. **Cálculo Matemático Dinâmico**: Criar `safeToSpendCalc` calculando teto mensal, despesas variáveis consumidas, saldo restante e ritmo diário (`safeDailyAmount`).
+3. **Card Hero no Dashboard**: Adicionar o componente visual de "Quanto posso gastar" com barra de ritmo e dias restantes.
+4. **Modal de Fontes de Renda**: Permitir adicionar, editar e remover fontes de renda (salário e extras).
+5. **Sincronização**: Salvar os dados na aba `Configuracoes` do Google Sheets.
+6. **Verificação & Compilação**: Executar `lint_applet` e `compile_applet`.

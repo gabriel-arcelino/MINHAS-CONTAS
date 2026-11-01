@@ -4,6 +4,7 @@ import {
   EmergencyFund,
   InvestmentAsset,
   DistributionSettings,
+  IncomeSource,
 } from '../types.ts';
 
 export interface FullFinancialData {
@@ -12,6 +13,7 @@ export interface FullFinancialData {
   emergencyFund: EmergencyFund;
   assets: InvestmentAsset[];
   distributionSettings: DistributionSettings;
+  incomeSources?: IncomeSource[];
 }
 
 export interface SpreadsheetInfo {
@@ -150,8 +152,8 @@ export async function findOrCreateAppSpreadsheet(accessToken: string): Promise<S
       ],
     },
     {
-      range: 'Configuracoes!A1:C1',
-      values: [['% Reserva', '% Investimentos', '% Dinheiro Livre']],
+      range: 'Configuracoes!A1:D1',
+      values: [['% Reserva', '% Investimentos', '% Dinheiro Livre', 'Fontes de Renda (JSON)']],
     },
   ];
 
@@ -186,7 +188,7 @@ export async function loadAllDataFromSheets(
     'Orcamentos!A2:C',
     'Reserva!A2:C',
     'Investimentos!A2:F',
-    'Configuracoes!A2:C',
+    'Configuracoes!A2:D',
   ];
 
   const params = ranges.map((r) => `ranges=${encodeURIComponent(r)}`).join('&');
@@ -255,12 +257,20 @@ export async function loadAllDataFromSheets(
   }));
 
   let distributionSettings: DistributionSettings | undefined;
+  let incomeSources: IncomeSource[] | undefined;
   if (confRows.length > 0) {
     distributionSettings = {
       emergencyPct: Number(String(confRows[0][0] || '60').replace(',', '.')) || 60,
       investPct: Number(String(confRows[0][1] || '30').replace(',', '.')) || 30,
       freePct: Number(String(confRows[0][2] || '10').replace(',', '.')) || 10,
     };
+    if (confRows[0][3]) {
+      try {
+        incomeSources = JSON.parse(confRows[0][3]);
+      } catch {
+        incomeSources = [];
+      }
+    }
   }
 
   return {
@@ -269,6 +279,7 @@ export async function loadAllDataFromSheets(
     emergencyFund,
     assets,
     distributionSettings,
+    incomeSources,
   };
 }
 
@@ -295,7 +306,7 @@ export async function syncAllDataToSheets(
           'Orcamentos!A2:C',
           'Reserva!A2:C',
           'Investimentos!A2:F',
-          'Configuracoes!A2:C',
+          'Configuracoes!A2:D',
         ],
       }),
     }
@@ -338,6 +349,7 @@ export async function syncAllDataToSheets(
       data.distributionSettings.emergencyPct,
       data.distributionSettings.investPct,
       data.distributionSettings.freePct,
+      JSON.stringify(data.incomeSources || []),
     ],
   ];
 
@@ -359,7 +371,7 @@ export async function syncAllDataToSheets(
       values: invRows.length > 0 ? invRows : [['', '', '', '', '', '']],
     },
     {
-      range: 'Configuracoes!A2:C2',
+      range: 'Configuracoes!A2:D2',
       values: confRows,
     },
   ];

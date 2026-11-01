@@ -52,3 +52,22 @@ export interface DistributionSettings {
   investPct: number;
   freePct: number;
 }
+
+export interface IncomeSource {
+  id: string;
+  name: string;
+  amount: number;
+  frequency: 'monthly' | 'extra';
+}
+
+export interface SafeToSpendCalc {
+  expectedIncome: number;
+  fixedCommitted: number;
+  plannedSavings: number;
+  freeSpendCeiling: number;
+  spentVariable: number;
+  remainingSafeToSpend: number;
+  daysRemaining: number;
+  safeDailyAmount: number;
+  burnRateStatus: 'safe' | 'warning' | 'exceeded';
+}

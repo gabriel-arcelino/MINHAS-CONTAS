@@ -32,6 +32,9 @@ import {
   LogOut,
   Database,
   Cloud,
+  Calendar,
+  DollarSign,
+  Coins,
 } from 'lucide-react';
 import type { User } from 'firebase/auth';
 import { initAuth, googleSignIn, logout as googleLogout } from './services/firebaseAuth.ts';
@@ -50,6 +53,8 @@ import {
   DistributionSettings,
   Category,
   TransactionType,
+  IncomeSource,
+  SafeToSpendCalc,
 } from './types';
 import {
   initialCategories,
@@ -142,6 +147,17 @@ export default function App() {
     localStorage.setItem('mf_categories', JSON.stringify(categories));
   }, [categories]);
 
+  const [incomeSources, setIncomeSources] = useState<IncomeSource[]>(() => {
+    const saved = localStorage.getItem('mf_income_sources');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  useEffect(() => {
+    localStorage.setItem('mf_income_sources', JSON.stringify(incomeSources));
+  }, [incomeSources]);
+
+  const [isIncomeModalOpen, setIsIncomeModalOpen] = useState(false);
+
   // Google Auth & Sheets Integration State
   const [user, setUser] = useState<User | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
@@ -172,6 +188,7 @@ export default function App() {
         emergencyFund: overrideData?.emergencyFund ?? emergencyFund,
         assets: overrideData?.assets ?? assets,
         distributionSettings: overrideData?.distributionSettings ?? distribution,
+        incomeSources: overrideData?.incomeSources ?? incomeSources,
       };
       await syncAllDataToSheets(activeSheet.id, payload, activeToken);
       setSyncStatus('synced');
@@ -197,7 +214,8 @@ export default function App() {
         (remote.transactions && remote.transactions.length > 0) ||
         (remote.assets && remote.assets.length > 0) ||
         (remote.emergencyFund &&
-          (remote.emergencyFund.currentBalance > 0 || remote.emergencyFund.targetAmount > 0));
+          (remote.emergencyFund.currentBalance > 0 || remote.emergencyFund.targetAmount > 0)) ||
+        (remote.incomeSources && remote.incomeSources.length > 0);
 
       if (hasRemoteData) {
         if (remote.transactions) setTransactions(remote.transactions);
@@ -205,6 +223,7 @@ export default function App() {
         if (remote.emergencyFund) setEmergencyFund(remote.emergencyFund);
         if (remote.assets) setAssets(remote.assets);
         if (remote.distributionSettings) setDistribution(remote.distributionSettings);
+        if (remote.incomeSources) setIncomeSources(remote.incomeSources);
         setSyncStatus('synced');
       } else {
         // First time initialization: populate remote sheet with current state
@@ -319,6 +338,81 @@ export default function App() {
       overflow,
     };
   }, [availableBalance, distribution, emergencyFund]);
+
+  // Safe-to-Spend Calculation ("Quanto Posso Gastar no Mês" & Meta Diária)
+  const safeToSpend = useMemo<SafeToSpendCalc>(() => {
+    const expectedIncome = incomeSources.reduce((sum, s) => sum + s.amount, 0);
+
+    const fixedKeywords = [
+      'moradia',
+      'aluguel',
+      'condomínio',
+      'condominio',
+      'contas',
+      'serviços',
+      'servicos',
+      'assinaturas',
+      'educação',
+      'educacao',
+      'saúde',
+      'saude',
+      'transporte',
+      'internet',
+      'luz',
+      'energia',
+      'água',
+      'agua',
+    ];
+
+    const fixedBudgets = budgets
+      .filter((b) => fixedKeywords.some((k) => b.categoryName.toLowerCase().includes(k)))
+      .reduce((sum, b) => sum + b.planned, 0);
+
+    const recurringExpenseActual = transactions
+      .filter((t) => t.type === 'expense' && t.isRecurring)
+      .reduce((sum, t) => sum + t.amount, 0);
+
+    const fixedCommitted = Math.max(fixedBudgets, recurringExpenseActual);
+
+    const netBase = Math.max(0, expectedIncome - fixedCommitted);
+    const plannedSavings = (netBase * (distribution.emergencyPct + distribution.investPct)) / 100;
+
+    const freeSpendCeiling = Math.max(0, expectedIncome - fixedCommitted - plannedSavings);
+
+    const spentVariable = transactions
+      .filter((t) => t.type === 'expense' && t.status === 'completed' && !t.isRecurring)
+      .reduce((sum, t) => sum + t.amount, 0);
+
+    const remainingSafeToSpend = freeSpendCeiling - spentVariable;
+
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const totalDaysInMonth = new Date(year, month + 1, 0).getDate();
+    const currentDay = now.getDate();
+    const daysRemaining = Math.max(1, totalDaysInMonth - currentDay + 1);
+
+    const safeDailyAmount = remainingSafeToSpend > 0 ? remainingSafeToSpend / daysRemaining : 0;
+
+    let burnRateStatus: 'safe' | 'warning' | 'exceeded' = 'safe';
+    if (remainingSafeToSpend <= 0 && freeSpendCeiling > 0) {
+      burnRateStatus = 'exceeded';
+    } else if (remainingSafeToSpend < freeSpendCeiling * 0.25 && freeSpendCeiling > 0) {
+      burnRateStatus = 'warning';
+    }
+
+    return {
+      expectedIncome,
+      fixedCommitted,
+      plannedSavings,
+      freeSpendCeiling,
+      spentVariable,
+      remainingSafeToSpend,
+      daysRemaining,
+      safeDailyAmount,
+      burnRateStatus,
+    };
+  }, [incomeSources, budgets, transactions, distribution]);
 
   // Handler for adding a new transaction or asset contribution
   const handleAddTransaction = (newTx: Omit<Transaction, 'id'>, assetFlow?: 'emergency' | 'investments') => {
@@ -591,6 +685,8 @@ export default function App() {
               distribution={distributionCalc}
               emergency={emergencyFund}
               transactions={transactions}
+              safeToSpend={safeToSpend}
+              onOpenIncomeModal={() => setIsIncomeModalOpen(true)}
               onNavigate={(tab) => setActiveTab(tab)}
             />
           )}
@@ -631,6 +727,8 @@ export default function App() {
           {activeTab === 'orcamento' && (
             <BudgetView
               budgets={budgets}
+              safeToSpend={safeToSpend}
+              onOpenIncomeModal={() => setIsIncomeModalOpen(true)}
               onUpdateBudget={(id, newPlanned) => {
                 const updated = budgets.map((b) => (b.id === id ? { ...b, planned: newPlanned } : b));
                 setBudgets(updated);
@@ -704,6 +802,7 @@ export default function App() {
           {activeTab === 'investimentos' && (
             <InvestmentsView
               assets={assets}
+              transactions={transactions}
               suggestedMonthlyInvestment={distributionCalc.investments}
               onAddAsset={(newAsset) => {
                 const updatedAssets = [newAsset, ...assets];
@@ -722,6 +821,19 @@ export default function App() {
                 setTransactions(updatedTx);
                 if (accessToken && spreadsheetInfo) {
                   syncToSheets({ assets: updatedAssets, transactions: updatedTx });
+                }
+              }}
+              onDeleteAsset={(id) => {
+                if (
+                  window.confirm(
+                    'Tem certeza que deseja remover este ativo da carteira? Essa alteração será sincronizada no Google Sheets.'
+                  )
+                ) {
+                  const updatedAssets = assets.filter((a) => a.id !== id);
+                  setAssets(updatedAssets);
+                  if (accessToken && spreadsheetInfo) {
+                    syncToSheets({ assets: updatedAssets });
+                  }
                 }
               }}
             />
@@ -795,6 +907,19 @@ export default function App() {
         categories={categories}
         onSubmit={handleAddTransaction}
       />
+
+      {/* MANAGE INCOME SOURCES MODAL */}
+      <ManageIncomeSourcesModal
+        isOpen={isIncomeModalOpen}
+        onClose={() => setIsIncomeModalOpen(false)}
+        incomeSources={incomeSources}
+        onSaveSources={(newSources) => {
+          setIncomeSources(newSources);
+          if (accessToken && spreadsheetInfo) {
+            syncToSheets({ incomeSources: newSources });
+          }
+        }}
+      />
     </div>
   );
 }
@@ -814,6 +939,8 @@ interface DashboardProps {
   };
   emergency: EmergencyFund;
   transactions: Transaction[];
+  safeToSpend: SafeToSpendCalc;
+  onOpenIncomeModal: () => void;
   onNavigate: (tab: any) => void;
 }
 
@@ -824,6 +951,8 @@ function DashboardView({
   distribution,
   emergency,
   transactions,
+  safeToSpend,
+  onOpenIncomeModal,
   onNavigate,
 }: DashboardProps) {
   const expenseRatio = income > 0 ? (expense / income) * 100 : 0;
@@ -843,6 +972,151 @@ function DashboardView({
           </p>
         </div>
       </div>
+
+      {/* HERO BANNER: QUANTO POSSO GASTAR NO MÊS & META DIÁRIA */}
+      {safeToSpend.expectedIncome === 0 ? (
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-slate-900/90 to-slate-950 border border-emerald-500/30 p-6 shadow-xl">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-5">
+            <div className="space-y-2 max-w-xl">
+              <div className="flex items-center gap-2">
+                <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  <Coins className="w-3.5 h-3.5" />
+                  Planejamento Inteligente
+                </span>
+                <span className="text-xs text-slate-400">Quanto posso gastar?</span>
+              </div>
+              <h3 className="text-lg font-bold text-white">
+                Defina seu Salário e Fontes de Renda
+              </h3>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Cadastre sua renda esperada para calcularmos automaticamente seu <strong className="text-emerald-400">teto de gastos livres no mês</strong> e sua <strong className="text-emerald-400">meta diária recomendada</strong>, protegendo suas contas fixas e aportes.
+              </p>
+            </div>
+            <button
+              onClick={onOpenIncomeModal}
+              className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-3 rounded-xl text-xs font-semibold shadow-lg shadow-emerald-950/40 transition-all active:scale-95 shrink-0"
+            >
+              <DollarSign className="w-4 h-4" />
+              <span>Cadastrar Salário / Renda</span>
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-slate-900/95 to-slate-950 border border-slate-800 p-6 shadow-xl">
+          {/* Subtle accent glow */}
+          <div
+            aria-hidden="true"
+            className={`absolute -top-24 -right-24 w-72 h-72 rounded-full blur-3xl pointer-events-none opacity-20 ${
+              safeToSpend.burnRateStatus === 'exceeded'
+                ? 'bg-rose-500'
+                : safeToSpend.burnRateStatus === 'warning'
+                ? 'bg-amber-500'
+                : 'bg-emerald-500'
+            }`}
+          />
+
+          <div className="relative z-10 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+            <div className="space-y-3 max-w-xl">
+              <div className="flex items-center gap-2">
+                <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-slate-800 border border-slate-700/80 text-slate-300">
+                  <Calendar className="w-3.5 h-3.5 text-emerald-400" />
+                  Mês Vigente
+                </span>
+                <span
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold border ${
+                    safeToSpend.burnRateStatus === 'exceeded'
+                      ? 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+                      : safeToSpend.burnRateStatus === 'warning'
+                      ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                      : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                  }`}
+                >
+                  {safeToSpend.burnRateStatus === 'exceeded' && '● Limite Ultrapassado'}
+                  {safeToSpend.burnRateStatus === 'warning' && '● Atenção ao Ritmo'}
+                  {safeToSpend.burnRateStatus === 'safe' && '● Ritmo Seguro'}
+                </span>
+              </div>
+
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Quanto posso gastar no mês
+                </h3>
+                <div className="flex items-baseline gap-3 mt-1">
+                  <span
+                    className={`text-3xl sm:text-4xl font-extrabold tracking-tight tabular-nums font-mono ${
+                      safeToSpend.remainingSafeToSpend < 0
+                        ? 'text-rose-400'
+                        : 'text-white'
+                    }`}
+                  >
+                    {formatCurrency(safeToSpend.remainingSafeToSpend)}
+                  </span>
+                  <span className="text-xs text-slate-400">
+                    {safeToSpend.remainingSafeToSpend >= 0 ? 'disponível livre' : 'excedido do teto'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Daily Pace */}
+              <div className="flex flex-wrap items-center gap-3 pt-1 text-xs">
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800/80 border border-slate-700/60">
+                  <Coins className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span className="text-slate-400">Meta diária recomendada:</span>
+                  <strong className="text-emerald-400 font-mono font-bold">
+                    {formatCurrency(safeToSpend.safeDailyAmount)}/dia
+                  </strong>
+                </div>
+                <span className="text-slate-400 text-xs">
+                  Restam <strong className="text-white font-medium">{safeToSpend.daysRemaining} dias</strong> no mês
+                </span>
+              </div>
+            </div>
+
+            {/* Income breakdown micro-summary & action */}
+            <div className="flex flex-col sm:flex-row lg:flex-col gap-3 shrink-0">
+              <button
+                onClick={onOpenIncomeModal}
+                className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2.5 rounded-xl text-xs font-semibold shadow-lg shadow-emerald-950/40 transition-all active:scale-95"
+              >
+                <DollarSign className="w-4 h-4" />
+                <span>Gerenciar Salário & Rendas</span>
+              </button>
+              <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-3 text-xs space-y-1.5 min-w-[230px]">
+                <div className="flex justify-between items-center text-slate-400">
+                  <span>Renda Prevista:</span>
+                  <strong className="text-slate-200 font-mono tabular-nums">
+                    {formatCurrency(safeToSpend.expectedIncome)}
+                  </strong>
+                </div>
+                <div className="flex justify-between items-center text-slate-400">
+                  <span>Custos Fixos:</span>
+                  <span className="text-rose-400 font-mono tabular-nums">
+                    - {formatCurrency(safeToSpend.fixedCommitted)}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-slate-400">
+                  <span>Aportes (60/30):</span>
+                  <span className="text-blue-400 font-mono tabular-nums">
+                    - {formatCurrency(safeToSpend.plannedSavings)}
+                  </span>
+                </div>
+                <div className="border-t border-slate-800 pt-1.5 flex justify-between items-center text-slate-300 font-medium">
+                  <span>Teto Livre Inicial:</span>
+                  <span className="text-emerald-400 font-mono tabular-nums font-bold">
+                    {formatCurrency(safeToSpend.freeSpendCeiling)}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-slate-400">
+                  <span>Já Gasto Variável:</span>
+                  <span className="text-amber-400 font-mono tabular-nums">
+                    - {formatCurrency(safeToSpend.spentVariable)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 3 Main Stat Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1245,9 +1519,11 @@ function TransactionsView({ transactions, onToggleStatus, onDelete }: Transactio
 interface BudgetViewProps {
   budgets: CategoryBudget[];
   onUpdateBudget: (id: string, newPlanned: number) => void;
+  safeToSpend: SafeToSpendCalc;
+  onOpenIncomeModal: () => void;
 }
 
-function BudgetView({ budgets, onUpdateBudget }: BudgetViewProps) {
+function BudgetView({ budgets, onUpdateBudget, safeToSpend, onOpenIncomeModal }: BudgetViewProps) {
   const [editingBudget, setEditingBudget] = useState<CategoryBudget | null>(null);
   const [newLimitInput, setNewLimitInput] = useState('');
 
@@ -1270,9 +1546,57 @@ function BudgetView({ budgets, onUpdateBudget }: BudgetViewProps) {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight text-white">Planejamento Orçamentário</h2>
-        <p className="text-xs text-slate-400">Defina limites mensais para controlar os gastos por categoria.</p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight text-white">Planejamento Orçamentário</h2>
+          <p className="text-xs text-slate-400">Defina limites mensais para controlar os gastos por categoria e manter sua capacidade de gastos segura.</p>
+        </div>
+        <button
+          onClick={onOpenIncomeModal}
+          className="flex items-center gap-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all active:scale-95 shrink-0"
+        >
+          <DollarSign className="w-4 h-4" />
+          <span>Renda: {formatCurrency(safeToSpend.expectedIncome)}</span>
+        </button>
+      </div>
+
+      {/* Card Resumo de Capacidade de Gastos no Orçamento */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 text-xs">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            <Coins className="w-5 h-5" />
+          </div>
+          <div>
+            <span className="text-slate-400 block text-[11px] uppercase font-bold tracking-wider">
+              Quanto Posso Gastar no Mês (Livre)
+            </span>
+            <div className="flex items-baseline gap-2 mt-0.5">
+              <span className={`text-xl font-bold font-mono tabular-nums ${safeToSpend.remainingSafeToSpend < 0 ? 'text-rose-400' : 'text-white'}`}>
+                {formatCurrency(safeToSpend.remainingSafeToSpend)}
+              </span>
+              <span className="text-slate-400 text-[11px]">
+                (Meta diária: <strong className="text-emerald-400 font-mono">{formatCurrency(safeToSpend.safeDailyAmount)}/dia</strong> · {safeToSpend.daysRemaining} dias)
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4 text-slate-400 border-t md:border-t-0 md:border-l border-slate-800 pt-3 md:pt-0 md:pl-5">
+          <div>
+            <span className="block text-[11px] text-slate-500">Fixos Comprometidos</span>
+            <span className="font-mono text-slate-300 font-semibold">{formatCurrency(safeToSpend.fixedCommitted)}</span>
+          </div>
+          <div>
+            <span className="block text-[11px] text-slate-500">Aportes Planejados</span>
+            <span className="font-mono text-blue-400 font-semibold">{formatCurrency(safeToSpend.plannedSavings)}</span>
+          </div>
+          <button
+            onClick={onOpenIncomeModal}
+            className="text-xs text-emerald-400 hover:text-emerald-300 underline underline-offset-2 ml-auto"
+          >
+            Editar Rendas
+          </button>
+        </div>
       </div>
 
       {/* Indicadores gerais */}
@@ -1740,11 +2064,19 @@ function EmergencyFundView({
 // ----------------------------------------------------------------------------------
 interface InvestmentsViewProps {
   assets: InvestmentAsset[];
+  transactions: Transaction[];
   suggestedMonthlyInvestment: number;
   onAddAsset: (asset: InvestmentAsset) => void;
+  onDeleteAsset: (id: string) => void;
 }
 
-function InvestmentsView({ assets, suggestedMonthlyInvestment, onAddAsset }: InvestmentsViewProps) {
+function InvestmentsView({
+  assets,
+  transactions,
+  suggestedMonthlyInvestment,
+  onAddAsset,
+  onDeleteAsset,
+}: InvestmentsViewProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [name, setName] = useState('');
   const [institution, setInstitution] = useState('');
@@ -1755,6 +2087,21 @@ function InvestmentsView({ assets, suggestedMonthlyInvestment, onAddAsset }: Inv
   const totalCurrent = assets.reduce((s, a) => s + a.currentAmount, 0);
   const profit = totalCurrent - totalApplied;
   const overallReturn = totalApplied > 0 ? (profit / totalApplied) * 100 : 0;
+
+  // Real monthly proventos from income tagged as investments, dividends or yields
+  const monthlyDividends = useMemo(() => {
+    return transactions
+      .filter(
+        (t) =>
+          t.type === 'income' &&
+          (t.category.toLowerCase().includes('invest') ||
+            t.category.toLowerCase().includes('dividend') ||
+            t.category.toLowerCase().includes('rendimento') ||
+            t.description.toLowerCase().includes('dividendo') ||
+            t.description.toLowerCase().includes('jcp'))
+      )
+      .reduce((s, t) => s + t.amount, 0);
+  }, [transactions]);
 
   const classBreakdown = {
     'Renda Fixa': assets.filter((a) => a.category === 'Renda Fixa').reduce((s, a) => s + a.currentAmount, 0),
@@ -1816,8 +2163,10 @@ function InvestmentsView({ assets, suggestedMonthlyInvestment, onAddAsset }: Inv
           <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
             Proventos no Mês
           </span>
-          <p className="text-2xl font-bold text-white tabular-nums font-mono">{formatCurrency(385.2)}</p>
-          <span className="text-xs text-blue-400 mt-1 block">Dividendos + JCP isentos</span>
+          <p className="text-2xl font-bold text-white tabular-nums font-mono">{formatCurrency(monthlyDividends)}</p>
+          <span className="text-xs text-blue-400 mt-1 block">
+            {monthlyDividends > 0 ? 'Dividendos e rendimentos recebidos' : 'Nenhum provento recebido ainda'}
+          </span>
         </div>
 
         <div className="bg-emerald-950/20 border border-emerald-500/30 rounded-xl p-5">
@@ -1870,12 +2219,13 @@ function InvestmentsView({ assets, suggestedMonthlyInvestment, onAddAsset }: Inv
                 <th className="py-3 px-4 font-semibold text-right">Aplicado</th>
                 <th className="py-3 px-4 font-semibold text-right">Saldo Atual</th>
                 <th className="py-3 px-4 font-semibold text-right">Rentabilidade</th>
+                <th className="py-3 px-4 font-semibold text-center">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/80">
               {assets.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-slate-500 text-xs">
+                  <td colSpan={7} className="py-8 text-center text-slate-500 text-xs">
                     Nenhum investimento cadastrado ainda. Clique em "+ Novo Ativo / Aporte" para começar.
                   </td>
                 </tr>
@@ -1898,6 +2248,15 @@ function InvestmentsView({ assets, suggestedMonthlyInvestment, onAddAsset }: Inv
                       </td>
                       <td className="py-3 px-4 text-right font-semibold text-emerald-400 tabular-nums font-mono">
                         + {ret.toFixed(1)}%
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        <button
+                          onClick={() => onDeleteAsset(asset.id)}
+                          title="Remover ativo"
+                          className="text-slate-500 hover:text-rose-400 p-1 rounded hover:bg-slate-800 transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </td>
                     </tr>
                   );
@@ -2073,7 +2432,7 @@ function ReportsView({ income, expense, emergencyBalance, assetsTotal, transacti
           </span>
           <p className="text-2xl font-bold text-white tabular-nums font-mono">{formatCurrency(avgExpense)}</p>
           <span className="text-xs text-blue-400 mt-1 block">
-            {((avgExpense / avgIncome) * 100).toFixed(1)}% da renda média consumida
+            {avgIncome > 0 ? ((avgExpense / avgIncome) * 100).toFixed(1) : '0.0'}% da renda média consumida
           </span>
         </div>
 
@@ -2848,6 +3207,280 @@ function QuickTransactionModal({ isOpen, onClose, categories, onSubmit }: QuickT
             Confirmar Registro
           </button>
         </form>
+      </div>
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------------------
+// MODAL: GERENCIAR FONTES DE RENDA E SALÁRIO
+// ----------------------------------------------------------------------------------
+interface ManageIncomeSourcesModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  incomeSources: IncomeSource[];
+  onSaveSources: (newSources: IncomeSource[]) => void;
+}
+
+function ManageIncomeSourcesModal({
+  isOpen,
+  onClose,
+  incomeSources,
+  onSaveSources,
+}: ManageIncomeSourcesModalProps) {
+  const [name, setName] = useState('');
+  const [amount, setAmount] = useState('');
+  const [frequency, setFrequency] = useState<'monthly' | 'extra'>('monthly');
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  if (!isOpen) return null;
+
+  const totalMonthlyIncome = incomeSources.reduce((sum, s) => sum + s.amount, 0);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const parsedAmount = parseFloat(amount);
+    if (!name.trim() || isNaN(parsedAmount) || parsedAmount <= 0) return;
+
+    if (editingId) {
+      const updated = incomeSources.map((s) =>
+        s.id === editingId
+          ? { ...s, name: name.trim(), amount: parsedAmount, frequency }
+          : s
+      );
+      onSaveSources(updated);
+      setEditingId(null);
+    } else {
+      const newSource: IncomeSource = {
+        id: 'inc-' + Date.now(),
+        name: name.trim(),
+        amount: parsedAmount,
+        frequency,
+      };
+      onSaveSources([...incomeSources, newSource]);
+    }
+
+    setName('');
+    setAmount('');
+    setFrequency('monthly');
+  };
+
+  const handleEdit = (source: IncomeSource) => {
+    setEditingId(source.id);
+    setName(source.name);
+    setAmount(source.amount.toString());
+    setFrequency(source.frequency);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setName('');
+    setAmount('');
+    setFrequency('monthly');
+  };
+
+  const handleDelete = (id: string) => {
+    const updated = incomeSources.filter((s) => s.id !== id);
+    onSaveSources(updated);
+    if (editingId === id) {
+      handleCancelEdit();
+    }
+  };
+
+  const setPreset = (presetName: string) => {
+    setName(presetName);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 relative max-h-[90vh] flex flex-col shadow-2xl">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-slate-800 pb-4 mb-4">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              <DollarSign className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="font-bold text-white text-base">Salário & Fontes de Renda</h3>
+              <p className="text-xs text-slate-400">
+                Base para cálculo de capacidade de gastos no mês.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Total Banner */}
+        <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-4 mb-4 flex items-center justify-between">
+          <span className="text-xs text-slate-400 font-medium">Renda Mensal Prevista Total</span>
+          <span className="text-xl font-extrabold text-emerald-400 font-mono tabular-nums">
+            {formatCurrency(totalMonthlyIncome)}
+          </span>
+        </div>
+
+        {/* Scrollable Content */}
+        <div className="flex-1 overflow-y-auto space-y-5 pr-1">
+          {/* Add / Edit Form */}
+          <form onSubmit={handleSubmit} className="bg-slate-950/50 border border-slate-800/80 rounded-xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                {editingId ? 'Editar Fonte de Renda' : 'Cadastrar Nova Renda'}
+              </h4>
+              {editingId && (
+                <button
+                  type="button"
+                  onClick={handleCancelEdit}
+                  className="text-[11px] text-slate-400 hover:text-white underline"
+                >
+                  Cancelar edição
+                </button>
+              )}
+            </div>
+
+            {/* Quick Presets */}
+            {!editingId && (
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {['Salário Líquido CLT', 'Freelance / Extras', 'Pró-Labore', 'Rendimentos'].map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setPreset(p)}
+                    className="text-[11px] px-2 py-0.5 rounded bg-slate-800/60 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700/60 transition-colors"
+                  >
+                    + {p}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div>
+              <label className="text-xs font-medium text-slate-400 block mb-1">
+                Nome da Fonte de Renda
+              </label>
+              <input
+                type="text"
+                placeholder="Ex: Salário CLT, Freelance, Aluguel"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+                className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-medium text-slate-400 block mb-1">
+                  Valor Estimado (R$)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  placeholder="0,00"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  required
+                  className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white text-sm font-bold focus:outline-none focus:border-emerald-500 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-slate-400 block mb-1">
+                  Frequência
+                </label>
+                <select
+                  value={frequency}
+                  onChange={(e) => setFrequency(e.target.value as 'monthly' | 'extra')}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="monthly">Mensal Recorrente</option>
+                  <option value="extra">Extra / Ocasional</option>
+                </select>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-2 rounded-lg text-xs transition-colors flex items-center justify-center gap-1.5"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>{editingId ? 'Salvar Alteração' : 'Adicionar Fonte de Renda'}</span>
+            </button>
+          </form>
+
+          {/* List of Registered Sources */}
+          <div className="space-y-2">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+              Fontes Cadastradas ({incomeSources.length})
+            </h4>
+
+            {incomeSources.length === 0 ? (
+              <div className="text-center py-6 border border-dashed border-slate-800 rounded-xl p-4 text-xs text-slate-500">
+                Nenhuma fonte cadastrada ainda. Adicione seu salário ou outra fonte acima para calcular sua capacidade de gastos.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {incomeSources.map((source) => (
+                  <div
+                    key={source.id}
+                    className="flex items-center justify-between p-3 rounded-xl bg-slate-950/60 border border-slate-800/80 text-xs hover:border-slate-700 transition-colors"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400">
+                        <ArrowUpRight className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="font-semibold text-white block">{source.name}</span>
+                        <span className="text-[11px] text-slate-400">
+                          {source.frequency === 'monthly' ? 'Mensal Recorrente' : 'Extra / Pontual'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <span className="font-mono font-bold text-emerald-400 text-sm tabular-nums">
+                        {formatCurrency(source.amount)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleEdit(source)}
+                        className="text-slate-400 hover:text-white p-1 rounded hover:bg-slate-800 transition-colors"
+                        title="Editar fonte"
+                      >
+                        <SettingsIcon className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(source.id)}
+                        className="text-slate-500 hover:text-rose-400 p-1 rounded hover:bg-slate-800 transition-colors"
+                        title="Excluir fonte"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="border-t border-slate-800 pt-4 mt-4 flex items-center justify-between">
+          <p className="text-[11px] text-slate-500 max-w-xs">
+            As alterações são salvas automaticamente e sincronizadas com a sua planilha do Google Sheets.
+          </p>
+          <button
+            onClick={onClose}
+            className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-xs font-semibold transition-colors"
+          >
+            Concluir
+          </button>
+        </div>
       </div>
     </div>
   );
