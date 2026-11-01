@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <title>Redirecionando - Meu Financeiro</title>
+    <script>
+      // Redirecionamento SPA para GitHub Pages
+      // Permite que recarregamentos em rotas diretas voltem para o index.html preservando rota e query
+      var segmentCount = 1;
+      var loc = window.location;
+      loc.replace(
+        loc.protocol + '//' + loc.hostname + (loc.port ? ':' + loc.port : '') +
+        loc.pathname.split('/').slice(0, 1 + segmentCount).join('/') + '/?/' +
+        loc.pathname.slice(1).split('/').slice(segmentCount).join('/').replace(/&/g, '~and~') +
+        (loc.search ? '&' + loc.search.slice(1).replace(/&/g, '~and~') : '') +
+        loc.hash
+      );
+    </script>
+  </head>
+  <body style="background-color: #020617; color: #94a3b8; font-family: system-ui, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0;">
+    <div style="text-align: center;">
+      <h2 style="color: #10b981; margin-bottom: 8px;">Meu Financeiro</h2>
+      <p>Carregando aplicação...</p>
+    </div>
+  </body>
+</html>

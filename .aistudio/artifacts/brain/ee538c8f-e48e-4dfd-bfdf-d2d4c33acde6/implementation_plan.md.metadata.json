@@ -1,6 +1,6 @@
 {
-  "summary":  "Plano para implementação do cálculo e visualização de 'Quanto posso gastar no mês', com cadastro de salário e fontes de renda, dedução de custos fixos e aportes, e cálculo de ritmo de gasto diário seguro.",
-  "updatedAt":  "2026-11-01T18:49:05.377901450Z",
+  "summary":  "Plano detalhado para configuração e disponibilização do projeto no GitHub Pages com GitHub Actions automatizado, base relativa universal no Vite e script 404 para suporte SPA.",
+  "updatedAt":  "2026-11-01T19:26:33.052291496Z",
   "requestFeedback":  true,
   "userFacing":  true
 }
