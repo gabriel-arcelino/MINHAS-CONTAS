@@ -595,7 +595,7 @@ export default function App() {
             </div>
             <div>
               <h1 className="text-base font-bold text-white tracking-tight leading-none">
-                Meu Financeiro
+                MINHAS CONTAS
               </h1>
               <p className="text-[11px] text-slate-400 mt-1">Planejamento Pessoal</p>
             </div>
@@ -638,7 +638,7 @@ export default function App() {
           <div className="relative w-64 bg-slate-900 border-r border-slate-800 p-6 flex flex-col justify-between">
             <div>
               <div className="flex items-center justify-between mb-6">
-                <span className="font-bold text-white">Meu Financeiro</span>
+                <span className="font-bold text-white">MINHAS CONTAS</span>
                 <button onClick={() => setIsMobileMenuOpen(false)} className="text-slate-400 hover:text-white">
                   <X className="w-5 h-5" />
                 </button>
@@ -679,7 +679,7 @@ export default function App() {
               <Menu className="w-5 h-5" />
             </button>
             <div className="hidden sm:flex items-center gap-2 text-xs text-slate-400">
-              <span>Meu Financeiro</span>
+              <span>MINHAS CONTAS</span>
               <span aria-hidden="true">/</span>
               <span className="text-white font-medium capitalize">
                 {navItems.find((n) => n.id === activeTab)?.name}
