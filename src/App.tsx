@@ -63,10 +63,8 @@ import {
 } from './types';
 import {
   initialCategories,
-  initialTransactions,
   initialBudgets,
   initialEmergencyFund,
-  initialAssets,
   initialDistribution,
   getDemoFinancialData,
   getEmptyFinancialData,
@@ -80,16 +78,16 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'movimentacoes' | 'orcamento' | 'reserva' | 'investimentos' | 'relatorios' | 'configuracoes'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  // Global Financial Data with localStorage (defaults to realistic balanced demo dataset for testing)
+  // Global Financial Data with localStorage (starts empty; demo data is opt-in)
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
     const saved = localStorage.getItem('mf_transactions');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) return parsed;
       } catch (e) {}
     }
-    return getDemoFinancialData().transactions;
+    return getEmptyFinancialData().transactions;
   });
 
   const [categories, setCategories] = useState<Category[]>(() => {
@@ -102,10 +100,10 @@ export default function App() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) return parsed;
       } catch (e) {}
     }
-    return getDemoFinancialData().budgets;
+    return getEmptyFinancialData().budgets;
   });
 
   const [emergencyFund, setEmergencyFund] = useState<EmergencyFund>(() => {
@@ -113,10 +111,10 @@ export default function App() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (parsed && (parsed.targetAmount > 0 || parsed.currentBalance > 0)) return parsed;
+        if (parsed && typeof parsed === 'object') return parsed;
       } catch (e) {}
     }
-    return getDemoFinancialData().emergencyFund;
+    return getEmptyFinancialData().emergencyFund;
   });
 
   const [assets, setAssets] = useState<InvestmentAsset[]>(() => {
@@ -124,15 +122,21 @@ export default function App() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) return parsed;
       } catch (e) {}
     }
-    return getDemoFinancialData().assets;
+    return getEmptyFinancialData().assets;
   });
 
   const [distribution, setDistribution] = useState<DistributionSettings>(() => {
     const saved = localStorage.getItem('mf_dist');
-    return saved ? JSON.parse(saved) : getDemoFinancialData().distribution;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === 'object') return parsed;
+      } catch (e) {}
+    }
+    return getEmptyFinancialData().distribution;
   });
 
   // Sync to localStorage
@@ -165,10 +169,10 @@ export default function App() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) return parsed;
       } catch (e) {}
     }
-    return getDemoFinancialData().incomeSources;
+    return getEmptyFinancialData().incomeSources;
   });
 
   useEffect(() => {
